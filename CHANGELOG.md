@@ -1,0 +1,158 @@
+# IRC Membership Portal - Changelog
+
+## Version 2.2 (February 6, 2026)
+
+### New Features
+
+#### Auto-Generated Passwords
+- Removed manual password entry from "Add Member" form
+- System generates secure random 16-character password
+- Member automatically receives password reset email
+- Member sets own password via secure link
+- Admins never see or handle member passwords
+- Email address now required when adding members
+
+#### Administrator Comments Field
+- New admin-only field for internal notes (500 character limit)
+- Track payment information: amounts, dates, methods, check numbers
+- Document special circumstances and board decisions
+- Members cannot see this field
+- Character counter for length tracking
+- Available on both Add Member and Edit Profile forms
+
+#### PDF Export Enhancements
+- Export now sorted by last name (instead of call sign)
+- Professional formatting with alternating row colors
+- Landscape orientation for better readability
+- Includes generation timestamp and member count
+- Confidentiality notice footer
+
+#### Call Sign Management
+- Admins can now change member call signs
+- Duplicate call sign validation
+- Automatic logout when member's call sign changes
+- System prompts for re-login with new call sign
+- Regular members cannot change own call sign
+
+#### Automated Expiration Notifications
+- Email notifications sent when membership status changes
+- Three status levels: Active, Expiring, Expired
+- Smart logic prevents duplicate notifications
+- Admin summary emails after each check run
+- Tracks notification history in database
+- Cron-compatible for scheduled execution
+
+#### Update Notifications
+- Admins can manually notify members of record updates
+- "Send Update Notice" button on dashboard
+- Email includes portal link and contact information
+- Cannot send to self
+- Only sends if member has email address
+
+### User Interface Improvements
+
+#### Dashboard Enhancements
+- Sortable columns (click headers to sort)
+- Call signs are clickable links to edit profiles
+- Color-coded status badges (Green/Yellow/Red)
+- Action buttons for each member:
+  - Send Update Notice (envelope icon)
+  - Reset Password (key icon)
+  - Delete Member (trash icon)
+- Member count displayed at bottom
+
+#### Profile Editor Updates
+- Call sign field editable by admins only
+- Admin comments section for administrators
+- Character counter on comment fields
+- Improved field organization and labels
+- Better visual distinction of admin-only fields
+
+### Bug Fixes
+- Fixed admin status preservation when editing own profile
+- Corrected status badge logic for current year memberships
+- Fixed member type field not being editable
+- Resolved issue with dashboard not showing all features after updates
+- Improved error handling for missing email addresses
+
+### Database Changes
+- Added `admin_comments` field (TEXT, 500 char limit)
+- Added `expiration_status` field (VARCHAR(20))
+- Added `expiration_notice_sent` field (DATE)
+- No breaking changes to existing data
+
+### Security Enhancements
+- Removed admin password visibility
+- Added duplicate call sign validation
+- Improved session handling for call sign changes
+- Enhanced input validation and sanitization
+- Better authorization checks on admin-only routes
+
+### Documentation
+- Complete Administrator Manual v2.2
+- Updated Member User Guide v2.2
+- Comprehensive Test Plan (90+ test cases)
+- Expiration Notification System guide
+- Deployment procedures
+
+---
+
+## Version 2.1 (December 2024)
+
+### Features
+- Initial membership portal with dashboard
+- Basic member CRUD operations
+- Password recovery via email
+- Status badges (Active/Expiring/Expired)
+- Admin privilege management
+- Member type field (Full/Associate/Life/Honorary)
+
+---
+
+## Version 2.0 (December 2024)
+
+### Features
+- Initial release
+- Docker containerization
+- Flask web application
+- MariaDB database
+- User authentication
+- Basic profile management
+
+---
+
+## Migration Notes
+
+### From v2.1 to v2.2
+1. Database migrations required (add_admin_comments.sql)
+2. New Python dependencies (existing ones compatible)
+3. Template updates (all templates modified)
+4. New scripts added (expiration checks, backups)
+5. No data loss - all existing data preserved
+6. Member passwords remain unchanged
+7. Requires brief downtime for container rebuild
+
+### Backward Compatibility
+- All v2.1 data fully compatible
+- Existing member accounts work without changes
+- Admin privileges preserved
+- Sessions may need refresh after deployment
+- Bookmarks to old URLs remain valid
+
+---
+
+## Known Issues
+
+### v2.2
+- PDF export performance degrades beyond ~1000 members
+- Session timeout fixed at 24 hours (not configurable via UI)
+- Email delivery depends on SMTP provider reliability
+- Expiration notifications require cron setup (not automatic)
+
+### Planned for Future Releases
+- Multi-language support
+- Mobile app
+- API for external integrations
+- Advanced reporting and analytics
+- Bulk import/export tools
+- Member self-registration workflow

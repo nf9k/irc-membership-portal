@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Add Member - Ham Radio Club Membership Portal{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-10 mx-auto">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-person-plus"></i> Add New Member</h2>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('add_member') }}">
+                    <h5 class="mb-3 text-primary">Station Information</h5>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="call_sign" class="form-label">Call Sign <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control text-uppercase" id="call_sign" name="call_sign" 
+                                   required style="text-transform: uppercase;" placeholder="W9ABC">
+                            <small class="form-text text-muted">This will be used as the login username</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="email" class="form-label">Email Address <span class="text-danger">*</span></label>
+                            <input type="email" class="form-control" id="email" name="email" required>
+                            <small class="form-text text-muted">
+                                <i class="bi bi-envelope"></i> Password reset link will be sent automatically
+                            </small>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Individual or Group Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                        <small class="form-text text-muted">Individual name or organization/club name</small>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="primary_rep" class="form-label">Primary Representative</label>
+                            <input type="text" class="form-control" id="primary_rep" name="primary_rep" placeholder="N/A">
+                            <small class="form-text text-muted">For clubs/groups (enter N/A for individuals)</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="rep_call" class="form-label">Representative Call Sign</label>
+                            <input type="text" class="form-control text-uppercase" id="rep_call" name="rep_call" 
+                                   style="text-transform: uppercase;">
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+                    <h5 class="mb-3 text-primary">Contact Information</h5>
+
+                    <div class="mb-3">
+                        <label for="address" class="form-label">Address</label>
+                        <input type="text" class="form-control" id="address" name="address">
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-5 mb-3">
+                            <label for="city" class="form-label">City</label>
+                            <input type="text" class="form-control" id="city" name="city">
+                        </div>
+                        <div class="col-md-2 mb-3">
+                            <label for="state" class="form-label">State</label>
+                            <input type="text" class="form-control text-uppercase" id="state" name="state" 
+                                   value="IN" maxlength="2" style="text-transform: uppercase;">
+                        </div>
+                        <div class="col-md-5 mb-3">
+                            <label for="zip" class="form-label">ZIP Code</label>
+                            <input type="text" class="form-control" id="zip" name="zip">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="telephone" class="form-label">Telephone</label>
+                        <input type="tel" class="form-control" id="telephone" name="telephone">
+                    </div>
+
+                    <hr class="my-4">
+                    <h5 class="mb-3 text-primary">Membership Status</h5>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="member_type" class="form-label">Member Type</label>
+                            <select class="form-select" id="member_type" name="member_type">
+                                <option value="">-- Select Type --</option>
+                                <option value="FULL">Full</option>
+                                <option value="ASSOCIATE">Associate</option>
+                                <option value="LIFE">Life</option>
+                                <option value="HONORARY">Honorary</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="paid_thru" class="form-label">Paid Through (Year)</label>
+                            <input type="text" class="form-control" id="paid_thru" name="paid_thru" placeholder="2025">
+                            <small class="form-text text-muted">Enter year membership is paid through (e.g., 2025, 2026)</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="admin_comments" class="form-label">
+                            <i class="bi bi-sticky"></i> Administrator Comments
+                            <span class="badge bg-warning text-dark ms-2">Admin Only</span>
+                        </label>
+                        <textarea class="form-control" id="admin_comments" name="admin_comments" 
+                                  rows="3" maxlength="500" 
+                                  placeholder="Payment tracking, notes, etc."></textarea>
+                        <div class="text-end">
+                            <small class="text-muted">
+                                <span id="charCount">0</span>/500
+                            </small>
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+                    <h5 class="mb-3 text-warning">Permissions</h5>
+
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="is_admin" name="is_admin">
+                            <label class="form-check-label" for="is_admin">
+                                <strong>Grant Admin Privileges</strong>
+                                <small class="text-muted d-block">Admins can manage all members and access admin features</small>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between mt-4">
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-person-plus"></i> Add Member
+                        </button>
+                        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Character counter for admin comments
+const adminComments = document.getElementById('admin_comments');
+if (adminComments) {
+    const charCount = document.getElementById('charCount');
+    adminComments.addEventListener('input', function() {
+        charCount.textContent = this.value.length;
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,774 @@
+import os
+import secrets
+from datetime import datetime, timedelta
+from functools import wraps
+import bcrypt
+from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+import MySQLdb
+from flask_mail import Mail, Message
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
+
+# Database configuration
+DB_CONFIG = {
+    'host': os.getenv('DB_HOST', 'db'),
+    'user': os.getenv('DB_USER', 'membership_user'),
+    'passwd': os.getenv('DB_PASSWORD', ''),
+    'db': os.getenv('DB_NAME', 'membership_db'),
+    'charset': 'utf8mb4'
+}
+
+# Mail configuration
+app.config['MAIL_SERVER'] = os.getenv('SMTP_HOST', 'mail.smtp2go.com')
+app.config['MAIL_PORT'] = int(os.getenv('SMTP_PORT', 587))
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.getenv('SMTP_USER', '')
+app.config['MAIL_PASSWORD'] = os.getenv('SMTP_PASSWORD', '')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('SMTP_FROM_EMAIL', 'noreply@example.com')
+
+mail = Mail(app)
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# Database helper functions
+def get_db_connection():
+    """Create database connection"""
+    return MySQLdb.connect(**DB_CONFIG)
+
+def dict_cursor(conn):
+    """Create a cursor that returns results as dictionaries"""
+    cursor = conn.cursor(MySQLdb.cursors.DictCursor)
+    return cursor
+
+# User class for Flask-Login
+class User(UserMixin):
+    def __init__(self, id, username, email, is_admin):
+        self.id = id
+        self.username = username
+        self.email = email
+        self.is_admin = is_admin
+
+@login_manager.user_loader
+def load_user(user_id):
+    conn = get_db_connection()
+    cursor = dict_cursor(conn)
+    cursor.execute("SELECT id, call_sign, email, is_admin FROM members WHERE id = %s", (user_id,))
+    user_data = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    if user_data:
+        return User(user_data['id'], user_data['call_sign'], user_data['email'], user_data['is_admin'])
+    return None
+
+def admin_required(f):
+    """Decorator to require admin privileges"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            flash('You need admin privileges to access this page.', 'danger')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def hash_password(password):
+    """Hash a password using bcrypt"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def check_password(password, hashed):
+    """Check if password matches hash"""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+def generate_reset_token():
+    """Generate a secure random token"""
+    return secrets.token_urlsafe(32)
+
+def send_password_reset_email(user_email, call_sign, token):
+    """Send password reset email"""
+    reset_url = f"{os.getenv('APP_URL', 'http://localhost:5000')}/reset-password/{token}"
+    
+    msg = Message(
+        subject="Password Reset Request",
+        recipients=[user_email],
+        body=f"""Hello {call_sign},
+
+You have requested to reset your password for the Ham Radio Club Membership Portal.
+
+Please click the link below to reset your password:
+{reset_url}
+
+This link will expire in 24 hours.
+
+If you did not request this password reset, please ignore this email.
+
+73,
+Membership Portal Team
+"""
+    )
+    
+    try:
+        mail.send(msg)
+        return True
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
+
+# Routes
+@app.route('/')
+def index():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        call_sign = request.form.get('call_sign').upper()
+        password = request.form.get('password')
+        
+        conn = get_db_connection()
+        cursor = dict_cursor(conn)
+        cursor.execute("SELECT id, call_sign, email, password_hash, is_admin FROM members WHERE call_sign = %s", (call_sign,))
+        user_data = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if user_data and check_password(password, user_data['password_hash']):
+            user = User(user_data['id'], user_data['call_sign'], user_data['email'], user_data['is_admin'])
+            login_user(user, remember=True)
+            flash('Login successful!', 'success')
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid call sign or password', 'danger')
+    
+    return render_template('login.html')
+
+@app.route('/request-access', methods=['POST'])
+def request_access():
+    """Handle password recovery/access request"""
+    email = request.form.get('email', '').strip().lower()
+    
+    if not email:
+        flash('Please enter an email address.', 'warning')
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    cursor = dict_cursor(conn)
+    cursor.execute("SELECT id, call_sign, email FROM members WHERE email = %s", (email,))
+    user = cursor.fetchone()
+    
+    if user:
+        # Generate reset token
+        token = generate_reset_token()
+        expires_at = datetime.now() + timedelta(hours=24)
+        
+        cursor.execute("""
+            INSERT INTO password_reset_tokens (user_id, token, expires_at) 
+            VALUES (%s, %s, %s)
+        """, (user['id'], token, expires_at))
+        conn.commit()
+        
+        # Send email with login instructions
+        send_password_reset_email(user['email'], user['call_sign'], token)
+        flash('Login instructions have been sent to your email address.', 'success')
+    else:
+        # Email not found - redirect to service desk
+        flash(f'Email address not found in our system. Please visit service-desk.ircinc.org to request access.', 'info')
+    
+    cursor.close()
+    conn.close()
+    return redirect(url_for('login'))
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    conn = get_db_connection()
+    cursor = dict_cursor(conn)
+    
+    if current_user.is_admin:
+        cursor.execute("SELECT * FROM members ORDER BY name")
+        members = cursor.fetchall()
+    else:
+        cursor.execute("SELECT * FROM members WHERE id = %s", (current_user.id,))
+        members = cursor.fetchall()
+    
+    cursor.close()
+    conn.close()
+    
+    return render_template('dashboard.html', members=members, now=datetime.now())
+
+
+@app.route('/admin/export-pdf')
+@login_required
+@admin_required
+def export_pdf():
+    """Generate and download PDF of member database"""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from io import BytesIO
+    
+    # Create PDF in memory
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter),
+                           rightMargin=0.5*inch, leftMargin=0.5*inch,
+                           topMargin=0.75*inch, bottomMargin=0.5*inch)
+    
+    # Container for PDF elements
+    elements = []
+    
+    # Styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        textColor=colors.HexColor('#0066cc'),
+        spaceAfter=12,
+        alignment=TA_CENTER
+    )
+    
+    subtitle_style = ParagraphStyle(
+        'CustomSubtitle',
+        parent=styles['Normal'],
+        fontSize=10,
+        textColor=colors.grey,
+        spaceAfter=20,
+        alignment=TA_CENTER
+    )
+    
+    # Title
+    title = Paragraph("Indiana Repeater Council<br/>Membership Database", title_style)
+    elements.append(title)
+    
+    # Subtitle with date and count
+    conn = get_db_connection()
+    cursor = dict_cursor(conn)
+    cursor.execute("SELECT COUNT(*) as count FROM members")
+    member_count = cursor.fetchone()['count']
+    
+    subtitle = Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}<br/>"
+                        f"Total Members: {member_count}", subtitle_style)
+    elements.append(subtitle)
+    elements.append(Spacer(1, 0.2*inch))
+    
+    # Get member data
+    cursor.execute("""
+        SELECT call_sign, name, email, city, state, member_type, paid_thru,
+               CASE WHEN is_admin = 1 THEN 'Yes' ELSE 'No' END as admin
+        FROM members 
+        ORDER BY 
+            CASE 
+                WHEN name LIKE '% %' THEN SUBSTRING_INDEX(name, ' ', -1)
+                ELSE name
+            END,
+            name
+    """)
+    members = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    # Prepare table data
+    table_data = [[
+        'Call Sign', 'Name', 'Email', 'City', 'State', 
+        'Type', 'Paid Thru', 'Admin'
+    ]]
+    
+    for member in members:
+        table_data.append([
+            member['call_sign'] or '',
+            member['name'] or '',
+            member['email'] or '',
+            member['city'] or '',
+            member['state'] or '',
+            member['member_type'] or '',
+            member['paid_thru'] or '',
+            member['admin'] or ''
+        ])
+    
+    # Create table
+    table = Table(table_data, colWidths=[0.9*inch, 1.8*inch, 1.8*inch, 
+                                         1.2*inch, 0.6*inch, 0.9*inch, 
+                                         0.9*inch, 0.7*inch])
+    
+    # Table style
+    table.setStyle(TableStyle([
+        # Header row
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0066cc')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        
+        # Data rows
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+        ('ALIGN', (0, 1), (0, -1), 'LEFT'),  # Call sign left
+        ('ALIGN', (1, 1), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        
+        # Grid
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        
+        # Alternating row colors
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        
+        # Padding
+        ('TOPPADDING', (0, 1), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+        ('LEFTPADDING', (0, 0), (-1, -1), 4),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    
+    elements.append(table)
+    
+    # Footer
+    elements.append(Spacer(1, 0.3*inch))
+    footer_style = ParagraphStyle(
+        'Footer',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=colors.grey,
+        alignment=TA_CENTER
+    )
+    footer = Paragraph("Indiana Repeater Council Membership Portal<br/>"
+                      "This document contains confidential member information.", 
+                      footer_style)
+    elements.append(footer)
+    
+    # Build PDF
+    doc.build(elements)
+    
+    # Prepare response
+    buffer.seek(0)
+    filename = f"IRC_Membership_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    
+    from flask import send_file
+    return send_file(
+        buffer,
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=filename
+    )
+
+@app.route('/profile/<int:user_id>', methods=['GET', 'POST'])
+@login_required
+def profile(user_id):
+    # Check permissions
+    if not current_user.is_admin and current_user.id != user_id:
+        flash('You do not have permission to edit this profile.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    conn = get_db_connection()
+    cursor = dict_cursor(conn)
+    
+    if request.method == 'POST':
+        # Get call sign - only admins can change it
+        if current_user.is_admin:
+            new_call_sign = request.form.get('call_sign').upper()
+        else:
+            # Non-admin: preserve existing call sign
+            cursor.execute("SELECT call_sign FROM members WHERE id = %s", (user_id,))
+            new_call_sign = cursor.fetchone()['call_sign']
+        
+        # Get other form data
+        email = request.form.get('email')
+        name = request.form.get('name')
+        primary_rep = request.form.get('primary_rep')
+        rep_call = request.form.get('rep_call').upper() if request.form.get('rep_call') else None
+        address = request.form.get('address')
+        city = request.form.get('city')
+        state = request.form.get('state')
+        zip_code = request.form.get('zip')
+        telephone = request.form.get('telephone')
+        
+        # Admin-only field
+        admin_comments = None
+        if current_user.is_admin:
+            admin_comments = request.form.get('admin_comments', '')
+            # Limit to 500 characters
+            if admin_comments and len(admin_comments) > 500:
+                admin_comments = admin_comments[:500]
+        
+        # Check if call sign changed (only possible if admin)
+        cursor.execute("SELECT call_sign FROM members WHERE id = %s", (user_id,))
+        old_member = cursor.fetchone()
+        old_call_sign = old_member['call_sign']
+        call_sign_changed = (new_call_sign != old_call_sign)
+        
+        # If call sign changed, check for duplicates
+        if call_sign_changed:
+            cursor.execute("SELECT id FROM members WHERE call_sign = %s AND id != %s", 
+                         (new_call_sign, user_id))
+            if cursor.fetchone():
+                flash(f'Call sign {new_call_sign} is already in use.', 'danger')
+                cursor.close()
+                conn.close()
+                return redirect(url_for('profile', user_id=user_id))
+        
+        # Build update query - paid_thru, member_type, and call_sign only editable by admin
+        if current_user.is_admin:
+            paid_thru = request.form.get('paid_thru')
+            member_type = request.form.get('member_type')
+            
+            # Only update is_admin if editing someone else
+            # If editing yourself, preserve current admin status
+            if user_id == current_user.id:
+                # Editing own profile - don't change admin status
+                cursor.execute("""
+                    UPDATE members 
+                    SET call_sign = %s, email = %s, name = %s, primary_rep = %s, rep_call = %s,
+                        address = %s, city = %s, state = %s, zip = %s, telephone = %s,
+                        paid_thru = %s, member_type = %s, admin_comments = %s
+                    WHERE id = %s
+                """, (new_call_sign, email, name, primary_rep, rep_call, address, city, state, zip_code, 
+                      telephone, paid_thru, member_type, admin_comments, user_id))
+            else:
+                # Editing someone else - allow changing admin status
+                is_admin = 1 if request.form.get('is_admin') == 'on' else 0
+                cursor.execute("""
+                    UPDATE members 
+                    SET call_sign = %s, email = %s, name = %s, primary_rep = %s, rep_call = %s,
+                        address = %s, city = %s, state = %s, zip = %s, telephone = %s,
+                        paid_thru = %s, member_type = %s, is_admin = %s, admin_comments = %s
+                    WHERE id = %s
+                """, (new_call_sign, email, name, primary_rep, rep_call, address, city, state, zip_code, 
+                      telephone, paid_thru, member_type, is_admin, admin_comments, user_id))
+        else:
+            # Non-admin update (call_sign already fetched from DB above)
+            cursor.execute("""
+                UPDATE members 
+                SET email = %s, name = %s, primary_rep = %s, rep_call = %s,
+                    address = %s, city = %s, state = %s, zip = %s, telephone = %s
+                WHERE id = %s
+            """, (email, name, primary_rep, rep_call, address, city, state, zip_code, 
+                  telephone, user_id))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        # If admin changed someone else's call sign, notify them
+        if call_sign_changed and user_id != current_user.id:
+            flash(f'Call sign updated to {new_call_sign}. Member will need to login with new call sign.', 'success')
+            return redirect(url_for('dashboard'))
+        
+        # If admin changed their own call sign, log them out
+        if call_sign_changed and user_id == current_user.id:
+            logout_user()
+            flash(f'Call sign updated to {new_call_sign}. Please login with your new call sign.', 'success')
+            return redirect(url_for('login'))
+        
+        flash('Profile updated successfully!', 'success')
+        return redirect(url_for('dashboard'))
+    
+    # GET request - display profile
+    cursor.execute("SELECT * FROM members WHERE id = %s", (user_id,))
+    member = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    if not member:
+        flash('Member not found.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    return render_template('profile.html', member=member)
+
+@app.route('/change-password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    if request.method == 'POST':
+        current_password = request.form.get('current_password')
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if new_password != confirm_password:
+            flash('New passwords do not match.', 'danger')
+            return render_template('change_password.html')
+        
+        conn = get_db_connection()
+        cursor = dict_cursor(conn)
+        cursor.execute("SELECT password_hash FROM members WHERE id = %s", (current_user.id,))
+        user_data = cursor.fetchone()
+        
+        if not check_password(current_password, user_data['password_hash']):
+            flash('Current password is incorrect.', 'danger')
+            cursor.close()
+            conn.close()
+            return render_template('change_password.html')
+        
+        new_hash = hash_password(new_password)
+        cursor.execute("UPDATE members SET password_hash = %s WHERE id = %s", (new_hash, current_user.id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        flash('Password changed successfully!', 'success')
+        return redirect(url_for('dashboard'))
+    
+    return render_template('change_password.html')
+
+@app.route('/admin/initiate-reset/<int:user_id>', methods=['POST'])
+@login_required
+@admin_required
+def initiate_password_reset(user_id):
+    conn = get_db_connection()
+    cursor = dict_cursor(conn)
+    
+    cursor.execute("SELECT call_sign, email FROM members WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
+    
+    if not user:
+        flash('User not found.', 'danger')
+        cursor.close()
+        conn.close()
+        return redirect(url_for('dashboard'))
+    
+    # Generate reset token
+    token = generate_reset_token()
+    expires_at = datetime.now() + timedelta(hours=24)
+    
+    cursor.execute("""
+        INSERT INTO password_reset_tokens (user_id, token, expires_at) 
+        VALUES (%s, %s, %s)
+    """, (user_id, token, expires_at))
+    conn.commit()
+    
+    # Send email
+    if send_password_reset_email(user['email'], user['call_sign'], token):
+        flash(f'Password reset email sent to {user["email"]}', 'success')
+    else:
+        flash('Failed to send password reset email. Please check SMTP configuration.', 'danger')
+    
+    cursor.close()
+    conn.close()
+    return redirect(url_for('dashboard'))
+
+@app.route('/admin/send-update-notice/<int:user_id>', methods=['POST'])
+@login_required
+@admin_required
+def send_update_notice(user_id):
+    """Send update notice email to a member"""
+    
+    # Don't allow sending to yourself
+    if user_id == current_user.id:
+        flash('Cannot send update notice to yourself.', 'warning')
+        return redirect(url_for('dashboard'))
+    
+    conn = get_db_connection()
+    cursor = dict_cursor(conn)
+    
+    cursor.execute("SELECT call_sign, name, email FROM members WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    if not user:
+        flash('User not found.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    if not user['email']:
+        flash(f'No email address on file for {user["call_sign"]}.', 'warning')
+        return redirect(url_for('dashboard'))
+    
+    # Send update notice email
+    msg = Message(
+        subject="Your Indiana Repeater Council membership record has been updated",
+        recipients=[user['email']],
+        body=f"""Hello {user['call_sign']},
+
+This is a notification that your membership record with the Indiana Repeater Council has been reviewed and updated by an administrator.
+
+Please login to the membership portal to review your current information:
+{os.getenv('APP_URL', 'http://localhost:5000')}
+
+If you have any questions about these changes, please contact us at service-desk.ircinc.org
+
+73,
+Indiana Repeater Council
+Membership Portal Team
+"""
+    )
+    
+    try:
+        mail.send(msg)
+        flash(f'Update notice sent to {user["email"]} ({user["call_sign"]})', 'success')
+    except Exception as e:
+        flash(f'Failed to send update notice: {str(e)}', 'danger')
+    
+    return redirect(url_for('dashboard'))
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        
+        conn = get_db_connection()
+        cursor = dict_cursor(conn)
+        cursor.execute("SELECT id, call_sign, email FROM members WHERE email = %s", (email,))
+        user = cursor.fetchone()
+        
+        if user:
+            # Generate reset token
+            token = generate_reset_token()
+            expires_at = datetime.now() + timedelta(hours=24)
+            
+            cursor.execute("""
+                INSERT INTO password_reset_tokens (user_id, token, expires_at) 
+                VALUES (%s, %s, %s)
+            """, (user['id'], token, expires_at))
+            conn.commit()
+            
+            send_password_reset_email(user['email'], user['call_sign'], token)
+        
+        # Always show success message to prevent email enumeration
+        flash('If that email exists in our system, a password reset link has been sent.', 'info')
+        cursor.close()
+        conn.close()
+        return redirect(url_for('login'))
+    
+    return render_template('forgot_password.html')
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    conn = get_db_connection()
+    cursor = dict_cursor(conn)
+    
+    # Verify token
+    cursor.execute("""
+        SELECT user_id FROM password_reset_tokens 
+        WHERE token = %s AND expires_at > NOW() AND used = FALSE
+    """, (token,))
+    token_data = cursor.fetchone()
+    
+    if not token_data:
+        flash('Invalid or expired password reset link.', 'danger')
+        cursor.close()
+        conn.close()
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if new_password != confirm_password:
+            flash('Passwords do not match.', 'danger')
+            cursor.close()
+            conn.close()
+            return render_template('reset_password.html', token=token)
+        
+        # Update password
+        new_hash = hash_password(new_password)
+        cursor.execute("UPDATE members SET password_hash = %s WHERE id = %s", 
+                      (new_hash, token_data['user_id']))
+        
+        # Mark token as used
+        cursor.execute("UPDATE password_reset_tokens SET used = TRUE WHERE token = %s", (token,))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        flash('Password reset successfully! You can now log in with your new password.', 'success')
+        return redirect(url_for('login'))
+    
+    cursor.close()
+    conn.close()
+    return render_template('reset_password.html', token=token)
+
+@app.route('/admin/add-member', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def add_member():
+    if request.method == 'POST':
+        call_sign = request.form.get('call_sign').upper()
+        email = request.form.get('email')
+        # Auto-generate secure random password
+        password = secrets.token_urlsafe(16)  # Generates random 16-char password
+        name = request.form.get('name')
+        primary_rep = request.form.get('primary_rep')
+        rep_call = request.form.get('rep_call').upper() if request.form.get('rep_call') else None
+        address = request.form.get('address')
+        city = request.form.get('city')
+        state = request.form.get('state')
+        zip_code = request.form.get('zip')
+        telephone = request.form.get('telephone')
+        paid_thru = request.form.get('paid_thru')
+        member_type = request.form.get('member_type')
+        is_admin = 1 if request.form.get('is_admin') == 'on' else 0
+        admin_comments = request.form.get('admin_comments', '')
+        if admin_comments and len(admin_comments) > 500:
+            admin_comments = admin_comments[:500]
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        try:
+            password_hash = hash_password(password)
+            cursor.execute("""
+                INSERT INTO members (call_sign, password_hash, email, name, primary_rep, 
+                                   rep_call, address, city, state, zip, telephone, 
+                                   paid_thru, member_type, is_admin, admin_comments)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (call_sign, password_hash, email, name, primary_rep, rep_call, address, 
+                  city, state, zip_code, telephone, paid_thru, member_type, is_admin, admin_comments))
+            conn.commit()
+            
+            # Send welcome email with password reset link if email provided
+            if email:
+                try:
+                    send_password_reset_email(email, call_sign)
+                    flash(f'Member {call_sign} added successfully! Password reset email sent to {email}.', 'success')
+                except Exception as e:
+                    flash(f'Member {call_sign} added, but failed to send password reset email: {str(e)}', 'warning')
+            else:
+                flash(f'Member {call_sign} added successfully! Note: No email provided - member will need admin assistance to set password.', 'warning')
+            
+            cursor.close()
+            conn.close()
+            return redirect(url_for('dashboard'))
+        except MySQLdb.IntegrityError as e:
+            flash('Call sign or email already exists.', 'danger')
+            cursor.close()
+            conn.close()
+    
+    return render_template('add_member.html')
+
+@app.route('/admin/delete-member/<int:user_id>', methods=['POST'])
+@login_required
+@admin_required
+def delete_member(user_id):
+    if user_id == current_user.id:
+        flash('You cannot delete your own account.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM members WHERE id = %s", (user_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+    flash('Member deleted successfully.', 'success')
+    return redirect(url_for('dashboard'))
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)

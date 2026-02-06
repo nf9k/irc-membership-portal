@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Profile - Ham Radio Club Membership Portal{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-10 mx-auto">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-person"></i> Edit Profile</h2>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('profile', user_id=member.id) }}">
+                    <h5 class="mb-3 text-primary">Station Information</h5>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="call_sign" class="form-label">
+                                Call Sign 
+                                {% if current_user.is_admin %}
+                                <span class="text-danger">*</span>
+                                {% endif %}
+                            </label>
+                            <input type="text" class="form-control text-uppercase" id="call_sign" name="call_sign" 
+                                   value="{{ member.call_sign }}" 
+                                   {% if current_user.is_admin %}required{% endif %}
+                                   {% if not current_user.is_admin %}disabled{% endif %}
+                                   style="text-transform: uppercase;">
+                            {% if current_user.is_admin %}
+                            <small class="form-text text-warning">
+                                <i class="bi bi-exclamation-triangle"></i> Changing call sign will require member to re-login
+                            </small>
+                            {% else %}
+                            <small class="form-text text-muted">
+                                <i class="bi bi-lock-fill"></i> Only admins can change call signs
+                            </small>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="email" class="form-label">Email Address</label>
+                            <input type="email" class="form-control" id="email" name="email" value="{{ member.email or '' }}">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Individual or Group Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="name" name="name" value="{{ member.name or '' }}" required>
+                        <small class="form-text text-muted">Individual name or organization/club name</small>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="primary_rep" class="form-label">Primary Representative</label>
+                            <input type="text" class="form-control" id="primary_rep" name="primary_rep" value="{{ member.primary_rep or '' }}">
+                            <small class="form-text text-muted">For clubs/groups, enter representative's name (or N/A for individuals)</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="rep_call" class="form-label">Representative Call Sign</label>
+                            <input type="text" class="form-control text-uppercase" id="rep_call" name="rep_call" 
+                                   value="{{ member.rep_call or '' }}" style="text-transform: uppercase;">
+                            <small class="form-text text-muted">Representative's call sign (if applicable)</small>
+                        </div>
+                    </div>
+
+                    <hr class="my-4">
+                    <h5 class="mb-3 text-primary">Contact Information</h5>
+
+                    <div class="mb-3">
+                        <label for="address" class="form-label">Address</label>
+                        <input type="text" class="form-control" id="address" name="address" value="{{ member.address or '' }}">
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-5 mb-3">
+                            <label for="city" class="form-label">City</label>
+                            <input type="text" class="form-control" id="city" name="city" value="{{ member.city or '' }}">
+                        </div>
+                        <div class="col-md-2 mb-3">
+                            <label for="state" class="form-label">State</label>
+                            <input type="text" class="form-control text-uppercase" id="state" name="state" 
+                                   value="{{ member.state or 'IN' }}" maxlength="2" style="text-transform: uppercase;">
+                        </div>
+                        <div class="col-md-5 mb-3">
+                            <label for="zip" class="form-label">ZIP Code</label>
+                            <input type="text" class="form-control" id="zip" name="zip" value="{{ member.zip or '' }}">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="telephone" class="form-label">Telephone</label>
+                        <input type="tel" class="form-control" id="telephone" name="telephone" value="{{ member.telephone or '' }}">
+                    </div>
+
+                    <hr class="my-4">
+                    <h5 class="mb-3 text-primary">Membership Status</h5>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="member_type" class="form-label">
+                                Member Type
+                                {% if not current_user.is_admin %}
+                                <i class="bi bi-lock-fill text-muted" title="Admin only"></i>
+                                {% endif %}
+                            </label>
+                            <select class="form-select" id="member_type" name="member_type"
+                                    {% if not current_user.is_admin %}disabled{% endif %}>
+                                <option value="">-- Select Type --</option>
+                                <option value="FULL" {% if member.member_type and member.member_type.upper() == 'FULL' %}selected{% endif %}>Full</option>
+                                <option value="ASSOCIATE" {% if member.member_type and member.member_type.upper() == 'ASSOCIATE' %}selected{% endif %}>Associate</option>
+                                <option value="LIFE" {% if member.member_type and member.member_type.upper() == 'LIFE' %}selected{% endif %}>Life</option>
+                                <option value="HONORARY" {% if member.member_type and member.member_type.upper() == 'HONORARY' %}selected{% endif %}>Honorary</option>
+                            </select>
+                            {% if not current_user.is_admin %}
+                            <small class="form-text text-muted">Only admins can modify this field</small>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="paid_thru" class="form-label">
+                                Paid Through (Year)
+                                {% if not current_user.is_admin %}
+                                <i class="bi bi-lock-fill text-muted" title="Admin only"></i>
+                                {% endif %}
+                            </label>
+                            <input type="text" class="form-control" id="paid_thru" name="paid_thru" 
+                                   value="{{ member.paid_thru or '' }}" placeholder="YYYY"
+                                   {% if not current_user.is_admin %}disabled{% endif %}>
+                            {% if not current_user.is_admin %}
+                            <small class="form-text text-muted">Only admins can modify this field</small>
+                            {% else %}
+                            <small class="form-text text-muted">Enter year (e.g., 2025, 2026)</small>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {% if current_user.is_admin %}
+                    <div class="mb-3">
+                        <label for="admin_comments" class="form-label">
+                            <i class="bi bi-sticky"></i> Administrator Comments
+                            <span class="badge bg-warning text-dark ms-2">Admin Only</span>
+                        </label>
+                        <textarea class="form-control" id="admin_comments" name="admin_comments" 
+                                  rows="4" maxlength="500" 
+                                  placeholder="Payment tracking: Amount, date, method, check #, etc.">{{ member.admin_comments or '' }}</textarea>
+                        <div class="d-flex justify-content-between mt-1">
+                            <small class="form-text text-muted">
+                                <i class="bi-lock-fill"></i> Members cannot see this field
+                            </small>
+                            <small class="text-muted">
+                                <span id="charCount">{{ (member.admin_comments or '')|length }}</span>/500
+                            </small>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if current_user.is_admin %}
+                    <hr class="my-4">
+                    <h5 class="mb-3 text-warning">Admin Settings</h5>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="is_admin" name="is_admin" 
+                                   {% if member.is_admin %}checked{% endif %}
+                                   {% if member.id == current_user.id %}disabled{% endif %}>
+                            <label class="form-check-label" for="is_admin">
+                                <strong>Grant Admin Privileges</strong>
+                                <small class="text-muted d-block">Admins can manage all members and access admin features</small>
+                            </label>
+                            {% if member.id == current_user.id %}
+                            <small class="form-text text-muted">You cannot modify your own admin status</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex justify-content-between mt-4">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> Save Changes
+                        </button>
+                        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body">
+                <h5 class="card-title"><i class="bi bi-shield-lock"></i> Security</h5>
+                <p class="text-muted">Manage your account security settings</p>
+                <a href="{{ url_for('change_password') }}" class="btn btn-outline-warning">
+                    <i class="bi bi-key"></i> Change Password
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Character counter for admin comments
+const adminComments = document.getElementById('admin_comments');
+if (adminComments) {
+    const charCount = document.getElementById('charCount');
+    adminComments.addEventListener('input', function() {
+        charCount.textContent = this.value.length;
+    });
+}
+</script>
+{% endblock %}
