@@ -285,7 +285,19 @@ def export_pdf():
     cursor.close()
     conn.close()
     
-    # Prepare table data
+    # Create paragraph style for table cells
+    from reportlab.platypus import Paragraph
+    from reportlab.lib.styles import ParagraphStyle
+    
+    cell_style = ParagraphStyle(
+        'CellStyle',
+        fontName='Helvetica',
+        fontSize=8,
+        leading=10,
+        wordWrap='CJK'
+    )
+    
+    # Prepare table data with Paragraphs for wrapping
     table_data = [[
         'Call Sign', 'Name', 'Email', 'City', 'State', 
         'Type', 'Paid Thru', 'Admin'
@@ -293,20 +305,28 @@ def export_pdf():
     
     for member in members:
         table_data.append([
-            member['call_sign'] or '',
-            member['name'] or '',
-            member['email'] or '',
-            member['city'] or '',
-            member['state'] or '',
-            member['member_type'] or '',
-            member['paid_thru'] or '',
-            member['admin'] or ''
+            Paragraph(member['call_sign'] or '', cell_style),
+            Paragraph(member['name'] or '', cell_style),
+            Paragraph(member['email'] or '', cell_style),
+            Paragraph(member['city'] or '', cell_style),
+            Paragraph(member['state'] or '', cell_style),
+            Paragraph(member['member_type'] or '', cell_style),
+            Paragraph(member['paid_thru'] or '', cell_style),
+            Paragraph(member['admin'] or '', cell_style)
         ])
     
-    # Create table
-    table = Table(table_data, colWidths=[0.9*inch, 1.8*inch, 1.8*inch, 
-                                         1.2*inch, 0.6*inch, 0.9*inch, 
-                                         0.9*inch, 0.7*inch])
+    # Create table with adjusted column widths for landscape letter (10.5" available width)
+    # Total: 0.8 + 1.5 + 2.0 + 1.0 + 0.4 + 0.7 + 0.7 + 0.5 = 7.6 inches
+    table = Table(table_data, colWidths=[
+        0.8*inch,   # Call Sign
+        1.5*inch,   # Name
+        2.0*inch,   # Email
+        1.0*inch,   # City
+        0.4*inch,   # State
+        0.7*inch,   # Type
+        0.7*inch,   # Paid Thru
+        0.5*inch    # Admin
+    ])
     
     # Table style
     table.setStyle(TableStyle([
@@ -323,7 +343,7 @@ def export_pdf():
         ('FONTSIZE', (0, 1), (-1, -1), 8),
         ('ALIGN', (0, 1), (0, -1), 'LEFT'),  # Call sign left
         ('ALIGN', (1, 1), (-1, -1), 'LEFT'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),  # Changed to TOP for better text alignment
         
         # Grid
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
