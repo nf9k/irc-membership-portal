@@ -106,20 +106,22 @@
                         <td>
                             <div class="btn-group btn-group-sm">
                                 {% if member.email and member.id != current_user.id %}
-                                <form method="POST" action="{{ url_for('send_update_notice', user_id=member.id) }}" class="d-inline">
-                                    <button type="submit" class="btn btn-outline-info" title="Send Update Notice" 
-                                            onclick="return confirm('Send update notice email to {{ member.email }}?')">
-                                        <i class="bi bi-envelope-check"></i>
-                                    </button>
-                                </form>
+                                <button type="button" class="btn btn-outline-info update-notice-btn" 
+                                        title="Send Update Notice"
+                                        data-user-id="{{ member.id }}"
+                                        data-email="{{ member.email }}"
+                                        data-call-sign="{{ member.call_sign }}">
+                                    <i class="bi bi-envelope-check"></i>
+                                </button>
                                 {% endif %}
                                 {% if member.email %}
-                                <form method="POST" action="{{ url_for('initiate_password_reset', user_id=member.id) }}" class="d-inline">
-                                    <button type="submit" class="btn btn-outline-warning" title="Reset Password" 
-                                            onclick="return confirm('Send password reset email to {{ member.email }}?')">
-                                        <i class="bi bi-key"></i>
-                                    </button>
-                                </form>
+                                <button type="button" class="btn btn-outline-warning password-reset-btn" 
+                                        title="Reset Password"
+                                        data-user-id="{{ member.id }}"
+                                        data-email="{{ member.email }}"
+                                        data-call-sign="{{ member.call_sign }}">
+                                    <i class="bi bi-key"></i>
+                                </button>
                                 {% endif %}
                                 {% if member.id != current_user.id %}
                                 <form method="POST" action="{{ url_for('delete_member', user_id=member.id) }}" class="d-inline">
@@ -185,6 +187,121 @@ function sortTable(columnIndex) {
     // Store sort state
     table.dataset.sortColumn = columnIndex;
     table.dataset.sortDir = sortDir;
+}
+
+// Password reset - AJAX (no page refresh)
+document.querySelectorAll('.password-reset-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const userId = this.dataset.userId;
+        const email = this.dataset.email;
+        const callSign = this.dataset.callSign;
+        
+        if (!confirm(`Send password reset email to ${email}?`)) {
+            return;
+        }
+        
+        // Disable button and show loading
+        const originalHtml = this.innerHTML;
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        
+        fetch(`/admin/initiate-password-reset/${userId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Show toast notification (Bootstrap 5)
+            const toastContainer = document.querySelector('.toast-container') || createToastContainer();
+            const toast = createToast(data.success ? 'success' : 'danger', data.message);
+            toastContainer.appendChild(toast);
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+            
+            // Re-enable button
+            this.disabled = false;
+            this.innerHTML = originalHtml;
+        })
+        .catch(error => {
+            alert('Error sending password reset email');
+            this.disabled = false;
+            this.innerHTML = originalHtml;
+        });
+    });
+});
+
+// Update notice - AJAX (no page refresh)
+document.querySelectorAll('.update-notice-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const userId = this.dataset.userId;
+        const email = this.dataset.email;
+        const callSign = this.dataset.callSign;
+        
+        if (!confirm(`Send update notice email to ${email}?`)) {
+            return;
+        }
+        
+        // Disable button and show loading
+        const originalHtml = this.innerHTML;
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        
+        fetch(`/admin/send-update-notice/${userId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Show toast notification
+            const toastContainer = document.querySelector('.toast-container') || createToastContainer();
+            const toast = createToast(data.success ? 'success' : 'danger', data.message);
+            toastContainer.appendChild(toast);
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+            
+            // Re-enable button
+            this.disabled = false;
+            this.innerHTML = originalHtml;
+        })
+        .catch(error => {
+            alert('Error sending update notice');
+            this.disabled = false;
+            this.innerHTML = originalHtml;
+        });
+    });
+});
+
+// Helper: Create toast container if doesn't exist
+function createToastContainer() {
+    const container = document.createElement('div');
+    container.className = 'toast-container position-fixed top-0 end-0 p-3';
+    container.style.zIndex = '9999';
+    document.body.appendChild(container);
+    return container;
+}
+
+// Helper: Create toast notification
+function createToast(type, message) {
+    const toast = document.createElement('div');
+    toast.className = `toast align-items-center text-white bg-${type} border-0`;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    
+    toast.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">
+                ${message}
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    `;
+    
+    return toast;
 }
 </script>
 {% endblock %}

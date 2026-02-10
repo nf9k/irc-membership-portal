@@ -557,10 +557,9 @@ def initiate_password_reset(user_id):
     user = cursor.fetchone()
     
     if not user:
-        flash('User not found.', 'danger')
         cursor.close()
         conn.close()
-        return redirect(url_for('dashboard'))
+        return jsonify({'success': False, 'message': 'User not found'}), 404
     
     # Generate reset token
     token = generate_reset_token()
@@ -574,13 +573,13 @@ def initiate_password_reset(user_id):
     
     # Send email
     if send_password_reset_email(user['email'], user['call_sign'], token):
-        flash(f'Password reset email sent to {user["email"]}', 'success')
+        cursor.close()
+        conn.close()
+        return jsonify({'success': True, 'message': f'Password reset email sent to {user["email"]}'})
     else:
-        flash('Failed to send password reset email. Please check SMTP configuration.', 'danger')
-    
-    cursor.close()
-    conn.close()
-    return redirect(url_for('dashboard'))
+        cursor.close()
+        conn.close()
+        return jsonify({'success': False, 'message': 'Failed to send email. Check SMTP configuration.'}), 500
 
 @app.route('/admin/send-update-notice/<int:user_id>', methods=['POST'])
 @login_required
@@ -590,8 +589,7 @@ def send_update_notice(user_id):
     
     # Don't allow sending to yourself
     if user_id == current_user.id:
-        flash('Cannot send update notice to yourself.', 'warning')
-        return redirect(url_for('dashboard'))
+        return jsonify({'success': False, 'message': 'Cannot send update notice to yourself'}), 400
     
     conn = get_db_connection()
     cursor = dict_cursor(conn)
@@ -602,12 +600,10 @@ def send_update_notice(user_id):
     conn.close()
     
     if not user:
-        flash('User not found.', 'danger')
-        return redirect(url_for('dashboard'))
+        return jsonify({'success': False, 'message': 'User not found'}), 404
     
     if not user['email']:
-        flash(f'No email address on file for {user["call_sign"]}.', 'warning')
-        return redirect(url_for('dashboard'))
+        return jsonify({'success': False, 'message': f'No email address on file for {user["call_sign"]}'}), 400
     
     # Send update notice email
     msg = Message(
@@ -630,11 +626,9 @@ Membership Portal Team
     
     try:
         mail.send(msg)
-        flash(f'Update notice sent to {user["email"]} ({user["call_sign"]})', 'success')
+        return jsonify({'success': True, 'message': f'Update notice sent to {user["email"]} ({user["call_sign"]})'})
     except Exception as e:
-        flash(f'Failed to send update notice: {str(e)}', 'danger')
-    
-    return redirect(url_for('dashboard'))
+        return jsonify({'success': False, 'message': f'Failed to send email: {str(e)}'}), 500
 
 @app.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
